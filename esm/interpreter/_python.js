@@ -1,15 +1,31 @@
+import * as JSON from '@ungap/structured-clone/json';
+import IDBMapSync from '@webreflection/idb-map/sync';
 import { dedent } from '../utils.js';
 import { io } from './_io.js';
+
+export const loader = new WeakMap();
 
 // REQUIRES INTEGRATION TEST
 /* c8 ignore start */
 export const registerJSModule = (interpreter, name, value) => {
+    if (name === 'polyscript') {
+        value.lazy_py_modules = async (...packages) => {
+            await loader.get(interpreter)(packages);
+            return packages.map(name => interpreter.pyimport(name));
+        };
+        value.storage = async (name) => {
+            const storage = new IDBMapSync(name);
+            await storage.sync();
+            return storage;
+        };
+        value.JSON = JSON;
+    }
     interpreter.registerJsModule(name, value);
 };
 
 export const getFormat = (path, url) => {
     if (path.endsWith('/*')) {
-        if (/\.(zip|tar(?:\.gz)?)$/.test(url))
+        if (/\.(zip|whl|tgz|tar(?:\.gz)?)$/.test(url))
             return RegExp.$1;
         throw new Error(`Unsupported archive ${url}`);
     }

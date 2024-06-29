@@ -1,6 +1,6 @@
 {
     "name": "polyscript",
-    "version": "0.12.3",
+    "version": "0.13.8",
     "description": "PyScript single core to rule them all",
     "main": "./cjs/index.js",
     "types": "./types/polyscript/esm/index.d.ts",
@@ -23,11 +23,12 @@
         "size:module": "echo module is $(cat dist/index.js | brotli | wc -c) bytes once compressed",
         "size:worker": "echo worker is $(cat esm/worker/xworker.js | brotli | wc -c) bytes once compressed",
         "ts": "rm -rf types && tsc -p .",
-        "update:interpreters": "npm run version:pyodide && npm run version:wasmoon && npm run version:micropython && npm run version:ruby-wasm-wasi && node rollup/update_versions.cjs && npm run build && npm run test",
+        "update:interpreters": "npm run version:pyodide && npm run version:wasmoon && npm run version:webr && npm run version:micropython && npm run version:ruby-wasm-wasi && node rollup/update_versions.cjs && npm run build && npm run test",
         "version:micropython": "npm view @micropython/micropython-webassembly-pyscript version>versions/micropython",
         "version:pyodide": "npm view pyodide version>versions/pyodide",
         "version:ruby-wasm-wasi": "git ls-remote --tags --refs --sort='v:refname' https://github.com/ruby/ruby.wasm.git | grep 'tags/[[:digit:]]\\.' | tail -n1 | sed 's/.*\\///'>versions/ruby-wasm-wasi",
-        "version:wasmoon": "npm view wasmoon version>versions/wasmoon"
+        "version:wasmoon": "npm view wasmoon version>versions/wasmoon",
+        "version:webr": "npm view webr version>versions/webr"
     },
     "keywords": [
         "polyscript",
@@ -39,16 +40,16 @@
     "license": "APACHE-2.0",
     "devDependencies": {
         "@node-loader/import-maps": "^1.1.0",
-        "@playwright/test": "^1.43.1",
+        "@playwright/test": "^1.44.1",
         "@rollup/plugin-node-resolve": "^15.2.3",
         "@rollup/plugin-terser": "^0.4.4",
-        "@zip.js/zip.js": "^2.7.41",
+        "@zip.js/zip.js": "^2.7.45",
         "ascjs": "^6.0.3",
-        "c8": "^9.1.0",
+        "c8": "^10.1.2",
         "chokidar": "^3.6.0",
-        "eslint": "^9.0.0",
-        "linkedom": "^0.16.11",
-        "rollup": "^4.14.3",
+        "eslint": "^9.5.0",
+        "linkedom": "^0.18.3",
+        "rollup": "^4.18.0",
         "static-handler": "^0.4.3",
         "typescript": "^5.4.5"
     },
@@ -79,6 +80,7 @@
         "@ungap/structured-clone": "^1.2.0",
         "@ungap/with-resolvers": "^0.1.0",
         "@webreflection/fetch": "^0.1.5",
+        "@webreflection/idb-map": "^0.3.1",
         "basic-devtools": "^0.1.6",
         "codedent": "^0.1.2",
         "coincident": "^1.2.3",
@@ -89,6 +91,6 @@
         "to-json-callback": "^0.1.1"
     },
     "worker": {
-        "blob": "sha256-x9FnCN9Oz1l5i3eTcOPg2IrqbdU7VfskuTHKznW4/L0="
+        "blob": "sha256-zrvckOW/DJa6Ds33kWWyNZtvV7aajCLCG+5LnBkpLiA="
     }
 }

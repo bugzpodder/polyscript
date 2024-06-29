@@ -29,6 +29,7 @@ const patchFetch = (callback) => {
 const { parseHTML } = require("linkedom");
 const { document, window, CustomEvent } = parseHTML("...");
 
+globalThis.indexedDB = { open: () => ({}) };
 globalThis.document = document;
 globalThis.Element = window.Element;
 globalThis.CustomEvent = CustomEvent;
@@ -71,7 +72,7 @@ const polyscript = require("../cjs");
     // all tests
     for (const test of [
         async function versionedRuntime() {
-            document.head.innerHTML = `<script type="pyodide" version="0.25.1">${content}</script>`;
+            document.head.innerHTML = `<script type="pyodide" version="0.26.1">${content}</script>`;
             await tick();
             assert(pyodide.content, dedent(content));
             assert(pyodide.target.tagName, "PYODIDE-SCRIPT");
