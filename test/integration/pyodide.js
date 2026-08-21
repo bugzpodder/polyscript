@@ -1,8 +1,8 @@
 'use strict';
 
-const { shared, python } = require('./_shared.js');
+import { shared, python } from './_shared.js';
 
-module.exports = (playwright, baseURL) => {
+export default (playwright, baseURL) => {
     const { expect, test } = playwright;
 
     test('Pyodide bootstrap', python.bootstrap(playwright, baseURL));
@@ -12,6 +12,21 @@ module.exports = (playwright, baseURL) => {
     test('Pyodide to Pyodide Worker', shared.worker(playwright, `${baseURL}/worker.html`));
 
     test('Pyodide config as JSON', python.configAsJSON(playwright, baseURL));
+
+    test('Pyodide unknown package', async ({ page }) => {
+        await page.goto(`${baseURL}/packages.html`);
+        await page.waitForSelector('html.error');
+    });
+
+    test('Pyodide config with passthrough', async ({ page }) => {
+        // Test that a config passed as object works out of the box.
+        const logs = [];
+        page.on('console', msg => logs.push(msg.text()));
+        await page.goto(`${baseURL}/config-passthrough.html`);
+        await page.waitForSelector('html.cleared');
+        await page.waitForSelector('html.ready');
+        await expect(logs.at(-1)).toBe('hello from A');
+    });
 
     test('Pyodide sync (time)', async ({ page }) => {
         const logs = [];
@@ -33,4 +48,9 @@ module.exports = (playwright, baseURL) => {
     test('Pyodide transform', python.error(playwright, baseURL));
 
     test('Pyodide events ready', python.disabledUntilReady(playwright, baseURL));
+
+    test('Pyodide index_urls', async ({ page }) => {
+        await page.goto(`${baseURL}/index_urls.html`);
+        await page.waitForSelector('html.test_foo');
+    });
 };

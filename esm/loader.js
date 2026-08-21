@@ -2,7 +2,9 @@ import fetch from '@webreflection/fetch';
 
 import { interpreter } from './interpreters.js';
 import { absoluteURL, resolve } from './utils.js';
-import { parse } from './toml.js';
+import { toml } from './3rd-party.js';
+
+const { parse } = JSON;
 
 // REQUIRES INTEGRATION TEST
 /* c8 ignore start */
@@ -15,13 +17,34 @@ export const getConfigURLAndType = (config, configURL = './config.txt') => {
     return [absoluteURL(config), type];
 };
 
+export const resolveConfig = (config, configURL, options = {}) => {
+    const [absolute, type] = getConfigURLAndType(config, configURL);
+    if (type === 'json') {
+        options = fetch(absolute).json();
+    } else if (type === 'toml') {
+        const { parser } = options;
+        options = fetch(absolute).text().then(async value => {
+            const module = parser ? (await import(parser)) : { parse: toml };
+            return (module.parse || module.default)(value);
+        });
+    } else if (type === 'string') {
+        options = parseString(config);
+    } else if (type === 'object' && config) {
+        options = config;
+    } else if (type === 'txt' && typeof options === 'string') {
+        options = parseString(options);
+    }
+    config = absolute;
+    return [options, config];
+};
+
 const parseString = config => {
     try {
-        return JSON.parse(config);
+        return parse(config);
     }
     // eslint-disable-next-line no-unused-vars
     catch (_) {
-        return parse(config);
+        return toml(config);
     }
 };
 /* c8 ignore stop */
@@ -41,19 +64,7 @@ export const getRuntime = (id, config, configURL, options = {}) => {
     if (config) {
         // REQUIRES INTEGRATION TEST
         /* c8 ignore start */
-        const [absolute, type] = getConfigURLAndType(config, configURL);
-        if (type === 'json') {
-            options = fetch(absolute).json();
-        } else if (type === 'toml') {
-            options = fetch(absolute).text().then(parse);
-        } else if (type === 'string') {
-            options = parseString(config);
-        } else if (type === 'object' && config) {
-            options = config;
-        } else if (type === 'txt' && typeof options === 'string') {
-            options = parseString(options);
-        }
-        config = absolute;
+        [options, config] = resolveConfig(config, configURL, options);
         /* c8 ignore stop */
     }
     return resolve(options).then(options => interpreter[id](options, config));

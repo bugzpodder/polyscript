@@ -1,11 +1,15 @@
 import fetch from '@webreflection/fetch';
 import { $ } from 'basic-devtools';
 
+import IDBMap from '@webreflection/idb-map';
+import IDBMapSync from '@webreflection/idb-map/sync';
+
+import { workers, workersHandler } from './workers.js';
 import $xworker from './worker/class.js';
 import workerURL from './worker/url.js';
 import { getRuntime, getRuntimeID } from './loader.js';
 import { registry } from './interpreters.js';
-import { JSModules, all, dispatch, resolve, defineProperty, nodeInfo, registerJSModules } from './utils.js';
+import { JSModules, isSync, all, dispatch, resolve, defineProperty, nodeInfo, registerJSModules } from './utils.js';
 
 const getRoot = (script) => {
     let parent = script;
@@ -54,23 +58,26 @@ const execute = async (currentScript, source, XWorker, isAsync) => {
         source,
     ]);
     try {
+        registerJSModules(type, module, interpreter, JSModules);
+        module.registerJSModule(interpreter, 'polyscript', {
+            IDBMap,
+            IDBMapSync,
+            XWorker,
+            currentScript,
+            js_modules: JSModules,
+            workers: workersHandler,
+        });
+        dispatch(currentScript, type, 'ready');
         // temporarily override inherited document.currentScript in a non writable way
         // but it deletes it right after to preserve native behavior (as it's sync: no trouble)
         defineProperty(document, 'currentScript', {
             configurable: true,
             get: () => currentScript,
         });
-        registerJSModules(type, module, interpreter, JSModules);
-        module.registerJSModule(interpreter, 'polyscript', {
-            XWorker,
-            currentScript,
-            js_modules: JSModules,
-        });
-        dispatch(currentScript, type, 'ready');
-        const result = module[isAsync ? 'runAsync' : 'run'](interpreter, content);
         const done = dispatch.bind(null, currentScript, type, 'done');
-        if (isAsync) result.then(done);
-        else done();
+        let result = module[isAsync ? 'runAsync' : 'run'](interpreter, content);
+        if (isAsync) result = await result;
+        done();
         return result;
     } finally {
         delete document.currentScript;
@@ -122,10 +129,20 @@ export const handle = async (script) => {
         // allow a shared config among scripts, beside interpreter,
         // and/or source code with different config or interpreter
         const {
-            attributes: { async: isAsync, config, env, target, version },
+            attributes: {
+                config,
+                env,
+                name: wn,
+                target,
+                version,
+                ['service-worker']: sw,
+            },
             src,
             type,
         } = script;
+
+        /* c8 ignore start */
+        const isAsync = !isSync(script);
 
         const versionValue = version?.value;
         const name = getRuntimeID(type, versionValue);
@@ -133,19 +150,22 @@ export const handle = async (script) => {
         const id = getValue(env, '') || `${name}${configValue}`;
         configValue = configValue.slice(1);
 
-        /* c8 ignore start */
         const url = workerURL(script);
         if (url) {
             const XWorker = $xworker(type, versionValue);
             const xworker = new XWorker(url, {
                 ...nodeInfo(script, type),
-                async: !!isAsync,
-                config: configValue
+                version: versionValue,
+                async: isAsync,
+                config: configValue,
+                serviceWorker: sw?.value,
             });
             handled.set(
                 defineProperty(script, 'xworker', { value: xworker }),
-                { xworker }
+                { xworker },
             );
+            const workerName = wn?.value;
+            if (workerName) workers[workerName].resolve(xworker.ready);
             return;
         }
         /* c8 ignore stop */
@@ -163,7 +183,7 @@ export const handle = async (script) => {
         // start fetching external resources ASAP
         const source = src ? fetch(src).text() : script.textContent;
         details.queue = details.queue.then(() =>
-            execute(script, source, details.XWorker, !!isAsync),
+            execute(script, source, details.XWorker, isAsync),
         );
     }
 };

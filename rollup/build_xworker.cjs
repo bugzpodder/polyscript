@@ -12,12 +12,25 @@ const DIST_DIR = resolve(join(__dirname, "..", "dist"));
 const WORKERS_DIR = resolve(join(__dirname, "..", "esm", "worker"));
 const PACKAGE_JSON = resolve(join(__dirname, "..", "package.json"));
 
+const coincident = [
+    "import coincident from 'coincident/window/main';",
+    "const js_modules = Symbol.for('polyscript.js_modules');",
+    "let transform;",
+    'const { Worker } = coincident({ transfer: false, transform: value => (transform || (transform = globalThis[js_modules]?.get("-T-")))?.(value) ?? value });',
+];
+
 for (const file of readdirSync(DIST_DIR)) {
     if (file.startsWith("_")) {
         if (process.env.NO_MIN) {
             writeFileSync(
                 join(WORKERS_DIR, "xworker.js"),
-                `/* c8 ignore next */\nexport default () => new Worker('/dist/_template.js',{type:'module'});`,
+                [
+                    '/* c8 ignore start */',
+                    ...coincident,
+                    `export default (...args) => new Worker('/dist/_template.js', ...args);`,
+                    '/* c8 ignore stop */',
+                    ''
+                ].join("\n")
             );
         } else {
             const js = JSON.stringify(
@@ -39,7 +52,8 @@ for (const file of readdirSync(DIST_DIR)) {
                     'const {url} = import.meta;',
                     `const re = ${/import\((['"])([^)]+?\.js)\1\)/}g;`,
                     `const place = ${(_,q,f) => `import(${q}${new URL(f,url).href}${q})`};`,
-                    `export default () => new Worker(URL.createObjectURL(new Blob([${js}.replace(re,place)],{type:'application/javascript'})),{type:'module'})`,
+                    ...coincident,
+                    `export default (...args) => new Worker(URL.createObjectURL(new Blob(['/*@*/'+${js}.replace(re,place)],{type:'text/javascript'})), ...args)`,
                     '/* c8 ignore stop */',
                     ''
                 ].join("\n")

@@ -1,6 +1,5 @@
-import * as JSON from '@ungap/structured-clone/json';
+import withResolvers from '@webreflection/utils/with-resolvers';
 import fetch from '@webreflection/fetch';
-import coincident from 'coincident/window';
 import xworker from './xworker.js';
 import { getConfigURLAndType } from '../loader.js';
 import { assign, create, defineProperties, importCSS, importJS } from '../utils.js';
@@ -12,8 +11,12 @@ import Hook from './hook.js';
  * @prop {string} [version] the optional interpreter version to use
  * @prop {string | object} [config] the optional config to use within such interpreter
  * @prop {string} [configURL] the optional configURL used to resolve config entries
+ * @prop {string} [serviceWorker] the optional Service Worker for SharedArrayBuffer fallback
+ * @prop {string} [service_worker] alias for `serviceWorker`
  */
 
+// REQUIRES INTEGRATION TEST
+/* c8 ignore start */
 export default (...args) =>
     /**
      * A XWorker is a Worker facade able to bootstrap a channel with any desired interpreter.
@@ -22,10 +25,6 @@ export default (...args) =>
      * @returns {Worker}
      */
     function XWorker(url, options) {
-        const worker = xworker();
-        const { postMessage } = worker;
-        const isHook = this instanceof Hook;
-
         if (args.length) {
             const [type, version] = args;
             options = assign({}, options || { type, version });
@@ -37,28 +36,56 @@ export default (...args) =>
         // fallback to a generic, ignored, config.txt file to still provide a URL.
         const [ config ] = getConfigURLAndType(options.config, options.configURL);
 
-        const bootstrap = fetch(url)
+        const serviceWorker = options?.serviceWorker || options?.service_worker;
+        const worker = xworker({
+            serviceWorker,
+            reflected_ffi_timeout: globalThis.reflected_ffi_timeout ?? -1,
+        });
+        const { postMessage } = worker;
+        const isHook = this instanceof Hook;
+
+        // basic per-worker semaphore to help loops getting unstuck
+        let stuck = false;
+
+        const sync = assign(
+            worker.proxy,
+            {
+                importJS,
+                importCSS,
+                // returns the current status of the semaphore
+                isStuck: () => stuck,
+                // when invoked through the worker it resets the semaphore
+                // to make it unstuck again
+                notStuck() {
+                    stuck = false;
+                },
+            },
+        );
+
+        const resolver = withResolvers();
+
+        let bootstrap = fetch(url)
             .text()
             .then(code => {
                 const hooks = isHook ? this.toJSON() : void 0;
                 postMessage.call(worker, { options, config, code, hooks });
+            })
+            .then(() => {
+                // boost postMessage performance
+                bootstrap = { then: fn => fn() };
             });
 
-        const sync = assign(
-            coincident(worker, JSON).proxy,
-            { importJS, importCSS },
-        );
-
-        const resolver = Promise.withResolvers();
-
         defineProperties(worker, {
+            // when invoked on the main thread it will set stuck
+            // so that any worker loop checking the status can
+            // eventually throw an error.
+            unstuck: { value() { stuck = true } },
             sync: { value: sync },
             ready: { value: resolver.promise },
             postMessage: {
-                value: (data, ...rest) =>
-                    bootstrap.then(() =>
-                        postMessage.call(worker, data, ...rest),
-                    ),
+                value: (data, ...rest) => bootstrap.then(
+                    () => postMessage.call(worker, data, ...rest),
+                ),
             },
             onerror: {
                 writable: true,
@@ -87,3 +114,5 @@ export default (...args) =>
 
         return worker;
     };
+
+/* c8 ignore stop */

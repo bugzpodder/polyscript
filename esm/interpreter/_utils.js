@@ -1,4 +1,3 @@
-import '@ungap/with-resolvers';
 import fetch from '@webreflection/fetch';
 
 import { absoluteURL, all, entries, importCSS, importJS, isArray, isCSS } from '../utils.js';
@@ -32,7 +31,7 @@ const dirname = (path) => {
     return tree.join('/');
 };
 
-const mkdirTree = (FS, path) => {
+export const mkdirTree = (FS, path) => {
     const current = [];
     for (const branch of path.split('/')) {
         if (branch === '.' || branch === '..') continue;
@@ -92,15 +91,13 @@ const joinPaths = (parts) => {
     return parts[0].startsWith('/') ? `/${res}` : res;
 };
 
-const fetchBuffer = (config_fetch, url) =>
-    fetch(absoluteURL(url, base.get(config_fetch))).arrayBuffer();
+const fetchBuffer = (url, baseURL) =>
+    fetch(absoluteURL(url, baseURL)).arrayBuffer();
 
-export const base = new WeakMap();
-
-export const fetchPaths = (module, interpreter, config_fetch) =>
+export const fetchPaths = (module, interpreter, config_fetch, baseURL) =>
     all(
         calculateFetchPaths(config_fetch).map(({ url, path }) =>
-            fetchBuffer(config_fetch, url)
+            fetchBuffer(url, baseURL)
                 .then((buffer) => module.writeFile(interpreter, path, buffer)),
         ),
     );
@@ -130,7 +127,7 @@ const calculateFilesPaths = files => {
     else {
       const url = parseTemplate(source, map);
       const path = fillName(url, parseTemplate(dest || './', map));
-      if (targets.has(path))
+      if (targets.has(path) && !path.endsWith('/*'))
         throw new SyntaxError(`Duplicated destination: ${path}`);
       targets.add(path);
       sourceDest.push({ url, path });
@@ -139,10 +136,10 @@ const calculateFilesPaths = files => {
   return sourceDest;
 };
 
-export const fetchFiles = (module, interpreter, config_files) =>
+export const fetchFiles = (module, interpreter, config_files, baseURL) =>
     all(
         calculateFilesPaths(config_files).map(({ url, path }) =>
-            fetchBuffer(config_files, url)
+            fetchBuffer(url, baseURL)
                 .then((buffer) => module.writeFile(
                     interpreter,
                     path,
@@ -152,21 +149,25 @@ export const fetchFiles = (module, interpreter, config_files) =>
         ),
     );
 
-export const fetchJSModules = ({ main, worker }) => {
+export const fetchJSModules = ({ main, worker }, baseURL) => {
     const promises = [];
     if (worker && RUNNING_IN_WORKER) {
         for (let [source, name] of entries(worker)) {
-            source = absoluteURL(source, base.get(worker));
+            source = absoluteURL(source, baseURL);
             promises.push(importJS(source, name));
         }
     }
     if (main && !RUNNING_IN_WORKER) {
         for (let [source, name] of entries(main)) {
-            source = absoluteURL(source, base.get(main));
+            source = absoluteURL(source, baseURL);
             if (isCSS(source)) importCSS(source);
             else promises.push(importJS(source, name));
         }
     }
     return all(promises);
+};
+
+export const createProgress = prefix => detail => {
+    dispatchEvent(new CustomEvent(`${prefix}:progress`, { detail }));
 };
 /* c8 ignore stop */

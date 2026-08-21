@@ -1,3 +1,4 @@
+import IDBMapSync from '@webreflection/idb-map/sync';
 import $dedent from 'codedent';
 import { unescape as $unescape } from 'html-escaper';
 import { io } from './interpreter/_io.js';
@@ -18,6 +19,11 @@ const { all, resolve } = new Proxy(Promise, {
 
 const absoluteURL = (path, base = location.href) =>
     new URL(path, base.replace(/^blob:/, '')).href;
+
+function fixedRelative(path) {
+    'use strict';
+    return path.startsWith('.') ? absoluteURL(path, this) : path;
+}
 
 /* c8 ignore start */
 let id = 0;
@@ -110,19 +116,28 @@ export const importJS = (source, name) => import(source).then(esm => {
 });
 
 export const importCSS = href => new Promise((onload, onerror) => {
-    if (document.querySelector(`link[href="${href}"]`)) onload();
-    document.head.append(
-        assign(
-            document.createElement('link'),
-            { rel: 'stylesheet', href, onload, onerror },
-        )
-    )
+    if (document.querySelector(`link[rel="stylesheet"][href="${href}"]`)) {
+        onload();
+    }
+    else {
+        document.head.append(
+            assign(
+                document.createElement('link'),
+                { rel: 'stylesheet', href, onload, onerror },
+            )
+        );
+    }
 });
 
-export const isCSS = source => /\.css/i.test(new URL(source).pathname);
+export const isCSS = source => /\.css$/i.test(new URL(source).pathname);
+
+export const isSync = element =>
+    /^(?:false|0|no)$/i.test(element.getAttribute('async'));
+
 /* c8 ignore stop */
 
 export {
+    IDBMapSync,
     dedent, unescape,
     dispatch,
     isArray,
@@ -134,5 +149,6 @@ export {
     all,
     resolve,
     absoluteURL,
+    fixedRelative,
     nodeInfo,
 };

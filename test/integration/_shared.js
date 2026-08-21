@@ -1,12 +1,24 @@
 'use strict';
 
-exports.shared = {
+export const shared = {
     bootstrap: ({ expect }, baseURL) => async ({ page }) => {
         await page.goto(`${baseURL}/bootstrap.html`);
         await page.waitForSelector('html.ready');
         await page.getByRole('button').click();
         const result = await page.evaluate(() => document.body.innerText);
         await expect(result.trim()).toBe('OK');
+    },
+
+    justClick: ({ expect }, baseURL) => async ({ page }) => {
+        // Test that a config passed as object works out of the box.
+        const logs = [];
+        page.on('console', msg => logs.push(msg.text()));
+        await page.goto(`${baseURL}/just-click.html`);
+        await page.waitForSelector('html.ready');
+        await page.getByRole('button').click();
+        // this is ugly ... reaction time really slow on listeners (100 is safe)
+        await new Promise($ => setTimeout($, 100));
+        await expect(/\bOK\b/.test(logs.at(-1))).toBe(true);
     },
 
     worker: ({ expect }, url) => async ({ page }) => {
@@ -25,7 +37,7 @@ exports.shared = {
     },
 };
 
-exports.python = {
+export const python = {
     bootstrap: ({ expect }, baseURL) => async ({ page }) => {
         await page.goto(`${baseURL}/bootstrap.html`);
         await page.waitForSelector('html.ready');

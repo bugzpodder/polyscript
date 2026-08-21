@@ -6,6 +6,14 @@
 
 ---
 
+## 📢 Announcement
+
+**[PyScript is entering maintenance mode](https://gist.github.com/WebReflection/37cd8ff649ffa336782fec9d28646fae)**
+
+---
+
+---
+
 ## Documentation
 
 Please read [the documentation page](https://pyscript.github.io/polyscript/) to know all the user-facing details around this module.
@@ -31,6 +39,9 @@ This project requires some automatic artifact creation to:
 Accordingly, to build latest project:
 
 ```sh
+# activate once the Python env (to use pyminify)
+. env.sh # or source env.sh
+
 # create all artifacts needed to test core
 npm run build
 

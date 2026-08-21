@@ -1,12 +1,16 @@
-import '@ungap/with-resolvers';
+import withResolvers from '@webreflection/utils/with-resolvers';
 import { $$ } from 'basic-devtools';
 
-import { JSModules, assign, create, createOverload, createResolved, dedent, defineProperty, nodeInfo, registerJSModules } from './utils.js';
+import IDBMap from '@webreflection/idb-map';
+import IDBMapSync from '@webreflection/idb-map/sync';
+
+import { JSModules, isSync, assign, create, createOverload, createResolved, dedent, defineProperty, nodeInfo, registerJSModules } from './utils.js';
 import { getDetails } from './script-handler.js';
 import { registry as defaultRegistry, prefixes, configs } from './interpreters.js';
-import { getRuntimeID } from './loader.js';
+import { getRuntimeID, resolveConfig } from './loader.js';
 import { addAllListeners } from './listeners.js';
 import { Hook, XWorker as XW } from './xworker.js';
+import { workers, workersHandler } from './workers.js';
 import { polluteJS, js as jsHooks, code as codeHooks } from './hooks.js';
 import workerURL from './worker/url.js';
 
@@ -55,23 +59,43 @@ export const handleCustomType = async (node) => {
                 env,
                 onerror,
                 hooks,
+                parser,
             } = options;
 
             let error;
             try {
                 const worker = workerURL(node);
                 if (worker) {
+                    let v = version;
+                    let url = configURL;
+                    let cfg = node.getAttribute('config') || config || {};
+                    if (!v || !cfg) {
+                        const [o, u] = resolveConfig(cfg, configURL, { parser });
+                        cfg = await o;
+                        url = u;
+                        v = cfg.version || cfg.interpreter;
+                        if (v && /\.m?js$/.test(v))
+                            v = new URL(v, url).href;
+                    }
+
+                    if (Number.isSafeInteger(cfg?.experimental_ffi_timeout))
+                        globalThis.reflected_ffi_timeout = cfg.experimental_ffi_timeout;
+
                     const xworker = XW.call(new Hook(null, hooks), worker, {
                         ...nodeInfo(node, type),
-                        version,
-                        configURL,
+                        parser,
+                        configURL: url,
+                        version: v,
                         type: runtime,
                         custom: type,
-                        config: node.getAttribute('config') || config || {},
-                        async: node.hasAttribute('async')
+                        config: cfg,
+                        async: !isSync(node),
+                        serviceWorker: node.getAttribute('service-worker'),
                     });
                     defineProperty(node, 'xworker', { value: xworker });
                     resolve({ type, xworker });
+                    const workerName = node.getAttribute('name');
+                    if (workerName) workers[workerName].resolve(xworker.ready);
                     return;
                 }
             }
@@ -114,9 +138,13 @@ export const handleCustomType = async (node) => {
 
             registerJSModules(runtime, module, interpreter, JSModules);
             module.registerJSModule(interpreter, 'polyscript', {
+                IDBMap,
+                IDBMapSync,
                 XWorker,
+                config: resolved.config,
                 currentScript: type.startsWith('_') ? null : node,
                 js_modules: JSModules,
+                workers: workersHandler,
             });
 
             // patch methods accordingly to hooks (and only if needed)
@@ -257,7 +285,7 @@ export const define = (type, options) => {
  * @returns {Promise<object>}
  */
 export const whenDefined = (type) => {
-    if (!waitList.has(type)) waitList.set(type, Promise.withResolvers());
+    if (!waitList.has(type)) waitList.set(type, withResolvers());
     return waitList.get(type).promise;
 };
 /* c8 ignore stop */

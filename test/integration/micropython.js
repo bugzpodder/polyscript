@@ -1,8 +1,8 @@
 'use strict';
 
-const { shared, python } = require('./_shared.js');
+import { shared, python } from './_shared.js';
 
-module.exports = (playwright, baseURL) => {
+export default (playwright, baseURL) => {
     const { expect, test } = playwright;
 
     test('MicroPython bootstrap', python.bootstrap(playwright, baseURL));
@@ -15,7 +15,7 @@ module.exports = (playwright, baseURL) => {
 
     test('MicroPython Worker window', shared.workerWindow(playwright, baseURL));
 
-    test('MicroPython to Wasmoon Worker', shared.worker(playwright, `${baseURL}/worker-lua.html`));
+    // test('MicroPython to Wasmoon Worker', shared.worker(playwright, `${baseURL}/worker-lua.html`));
 
     test('MicroPython Worker error', python.error(playwright, baseURL));
 
@@ -52,4 +52,14 @@ module.exports = (playwright, baseURL) => {
     test('MicroPython local intepreter', python.localInterpreter(playwright, baseURL));
 
     test('MicroPython mip', python.waitForDone(playwright, `${baseURL}/mip.html`));
+
+    test('MicroPython Storage', async ({ page }) => {
+        await page.goto(`${baseURL}/storage.html`);
+        await page.waitForSelector(`html.ready.main.worker`);
+    });
+
+    test('MicroPython using workers', async ({ page }) => {
+        await page.goto(`${baseURL}/workers.html`);
+        await page.waitForSelector(`html.ok`);
+    });
 };

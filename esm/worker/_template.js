@@ -4,8 +4,10 @@
 //    Please check via `npm run size` that worker code is not much
 //    bigger than it used to be before any changes is applied to this file.
 
-import * as JSON from '@ungap/structured-clone/json';
-import coincident from 'coincident/window';
+import IDBMap from '@webreflection/idb-map';
+import IDBMapSync from '@webreflection/idb-map/sync';
+
+import coincident from 'coincident/window/worker';
 
 import { assign, create, createFunction, createOverload, createResolved, dispatch, registerJSModules } from '../utils.js';
 import createJSModules from './js_modules.js';
@@ -30,19 +32,25 @@ const add = (type, fn) => {
     );
 };
 
-const { parse, stringify } = JSON;
-
-const { proxy: sync, window, isWindowProxy } = coincident(self, {
-    parse,
-    stringify,
+const {
+    proxy: sync,
+    sync: polyfill,
+    native,
+    window,
+    isWindowProxy,
+    ffi,
+} = await coincident({
+    transfer: false,
     transform: value => transform ? transform(value) : value
 });
 
 const xworker = {
+    // propagate the fact SharedArrayBuffer is polyfilled
+    polyfill,
     // allows synchronous utilities between this worker and the main thread
     sync,
-    // allow access to the main thread world
-    window,
+    // allow access to the main thread world whenever it's possible
+    window: (native || polyfill) ? window : null,
     // allow introspection for foreign (main thread) refrences
     isWindowProxy,
     // standard worker related events / features
@@ -61,44 +69,16 @@ add('message', ({ data: { options, config: baseURL, configURL, code, hooks } }) 
 
             const interpreter = await getRuntime(runtimeID, baseURL, configURL, config);
 
-            const { js_modules, sync_main_only } = configs.get(runtimeID);
+            const { js_modules } = configs.get(runtimeID);
 
             const mainModules = js_modules?.main;
-
-            // this flag allows interacting with the xworker.sync exposed
-            // *only in the worker* and eventually invoked *only from main*.
-            // If that flag is `false` or not present, then SharedArrayBuffer
-            // must be available or not much can work in here.
-            let syncMainAndWorker = !sync_main_only;
-
-            // bails out out of the box with a native/meaningful error
-            // in case the SharedArrayBuffer is not available
-            try {
-                new SharedArrayBuffer(4);
-                // if this does not throw there's no reason to
-                // branch out of all the features ... but ...
-                syncMainAndWorker = true;
-            }
-            // eslint-disable-next-line no-unused-vars
-            catch (_) {
-                // if it does throw and `sync_main_only` was not `true`
-                // then there's no way to go further
-                if (syncMainAndWorker) {
-                    throw new Error(
-                        [
-                            'Unable to use SharedArrayBuffer due insecure environment.',
-                            'Please read requirements in MDN: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/SharedArrayBuffer#security_requirements',
-                        ].join('\n'),
-                    );
-                }
-            }
 
             const details = create(registry.get(type));
 
             const resolved = createResolved(
                 details,
                 custom || type,
-                config,
+                config || {},
                 interpreter
             );
 
@@ -149,7 +129,7 @@ add('message', ({ data: { options, config: baseURL, configURL, code, hooks } }) 
             // there's no way to query the DOM, use foreign CustomEvent and so on
             // in case there's no SharedArrayBuffer around.
             let CustomEvent, document, notify, currentScript = null, target = '';
-            if (syncMainAndWorker) {
+            if (native || polyfill) {
                 ({ CustomEvent, document } = window);
                 currentScript = id && document.getElementById(id) || null;
                 notify = kind => dispatch(currentScript, custom || type, kind, true, CustomEvent);
@@ -157,18 +137,22 @@ add('message', ({ data: { options, config: baseURL, configURL, code, hooks } }) 
 
             // TODO: even this is problematic without SharedArrayBuffer
             // but let's see if we can manage to make it work somehow.
-            const JSModules = createJSModules(window, sync, mainModules);
+            const JSModules = createJSModules(window, sync, mainModules, baseURL);
 
             registerJSModules(type, details, interpreter, JSModules);
             details.registerJSModule(interpreter, 'polyscript', {
+                IDBMap,
+                IDBMapSync,
                 xworker,
                 currentScript,
+                config: resolved.config,
                 js_modules: JSModules,
+                ffi,
                 get target() {
                     if (!target && currentScript) {
                         if (tag === 'SCRIPT') {
                             currentScript.after(assign(
-                                document.createElement(`script-${custom || type}`),
+                                window.document.createElement(`script-${custom || type}`),
                                 { id: (target = `${id}-target`) }
                             ));
                         }
@@ -203,6 +187,28 @@ add('message', ({ data: { options, config: baseURL, configURL, code, hooks } }) 
             // run either sync or async code in the worker
             await details[name](interpreter, code);
 
+            if (['micropython', 'pyodide'].includes(details.type)) {
+                // this dance is required due Pyodide issues with runtime sync exports
+                // or MicroPython issue with `runPython` not returning values
+                const polyscript = 'polyscript';
+                const workers = `__${polyscript}_workers__`;
+                const exports = '__export__';
+                interpreter.runPython([
+                    `import js as ${workers}`,
+                    `${workers}.${workers} = "${exports}" in locals() and ${exports} or []`,
+                    `del ${workers}`,
+                ].join('\n'));
+                const list = [...globalThis[workers]];
+                delete globalThis[workers];
+                if (list.length) {
+                    interpreter.runPython([
+                        `from ${polyscript} import xworker as ${workers}`,
+                        ...list.map(util => `${workers}.sync.${util} = ${util}`),
+                        `del ${workers}`,
+                    ].join('\n'));
+                }
+            }
+
             // notify worker done executing
             if (currentScript) notify('done');
             postMessage('polyscript:done');
@@ -214,4 +220,9 @@ add('message', ({ data: { options, config: baseURL, configURL, code, hooks } }) 
     add('error');
     add('message');
     add('messageerror');
+    if (native || polyfill) {
+        addEventListener('py:progress', ({ type, detail }) => {
+            window.dispatchEvent(new window.CustomEvent(type, { detail }));
+        });
+    }
 });
